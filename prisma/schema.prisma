@@ -1,0 +1,550 @@
+// Nexus Command — data backbone.
+// SQLite in dev (`file:./dev.db`), PostgreSQL in production — the
+// repository layer makes the swap a DATABASE_URL change only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum Department {
+  COMMS
+  REVENUE
+  SOCIAL
+  FINANCE
+  KNOWLEDGE
+  OPERATIONS
+  STRATEGY
+}
+
+enum AgentStatus {
+  IDLE
+  RUNNING
+  ERROR
+  PAUSED
+}
+
+enum ChannelType {
+  EMAIL
+  SLACK
+  WHATSAPP
+  SMS
+  VOICE
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum RelationshipStage {
+  PROSPECT
+  ACTIVE
+  PARTNER
+  CHURN_RISK
+  INACTIVE
+}
+
+enum DealStage {
+  LEAD
+  QUALIFIED
+  DISCOVERY
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum SocialPlatform {
+  X
+  LINKEDIN
+  INSTAGRAM
+  YOUTUBE
+  TIKTOK
+  NEWSLETTER
+  THREADS
+  BLUESKY
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionCategory {
+  SOFTWARE
+  MARKETING
+  CONTRACTORS
+  INFRASTRUCTURE
+  EDUCATION
+  TRAVEL
+  LEGAL
+  OTHER
+  INCOME_PRODUCT
+  INCOME_SERVICE
+  INCOME_SUBSCRIPTION
+  INCOME_AFFILIATE
+  INCOME_OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+}
+
+enum KnowledgeCategory {
+  CLIENT
+  PRODUCT
+  PROCESS
+  INSIGHT
+  DECISION
+  MEETING
+  RESEARCH
+}
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+}
+
+enum TaskPriority {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum WorkflowStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  NOT_CONFIGURED
+  DEGRADED
+  ERROR
+}
+
+enum EventType {
+  SYSTEM_BOOT
+  AGENT_RUN_STARTED
+  AGENT_RUN_COMPLETED
+  AGENT_RUN_FAILED
+  AGENT_MESSAGE_SENT
+  MESSAGE_RECEIVED
+  MESSAGE_SENT
+  DEAL_CREATED
+  DEAL_STAGE_CHANGED
+  DEAL_WON
+  DEAL_LOST
+  TRANSACTION_LOGGED
+  INVOICE_CREATED
+  INVOICE_PAID
+  KNOWLEDGE_CREATED
+  KNOWLEDGE_UPDATED
+  KNOWLEDGE_LINKED
+  TASK_CREATED
+  TASK_MOVED
+  TASK_COMPLETED
+  WORKFLOW_RUN_STARTED
+  WORKFLOW_RUN_COMPLETED
+  WORKFLOW_RUN_FAILED
+  SOCIAL_POST_PUBLISHED
+  SOCIAL_POST_SCHEDULED
+  INTEGRATION_CONNECTED
+  INTEGRATION_STATUS_CHANGED
+  NOTIFICATION_SENT
+  CONTACT_UPDATED
+  BRAIN_DUMP_PROCESSED
+  BRAIN_DUMP_CREATED
+  SOCIAL_POST_CREATED
+  TASK_STATUS_CHANGED
+  FORECAST_GENERATED
+  DIGEST_GENERATED
+  COMMAND_EXECUTED
+}
+
+enum AgentMessageKind {
+  OPERATOR_TO_AGENT
+  AGENT_TO_OPERATOR
+  AGENT_TO_AGENT
+  BROADCAST
+}
+
+// ---------------------------------------------------------------- models
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  company   String
+  role      String   @default("Founder & CEO")
+  timezone  String   @default("America/New_York")
+  onboarded Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Agent {
+  id            String      @id @default(cuid())
+  slug          String      @unique
+  name          String
+  department    Department
+  role          String
+  personality   String
+  capabilities  String // JSON array of capability strings
+  memoryContext String // JSON: standing context the agent remembers
+  config        String // JSON: temperature, model, schedule etc.
+  status        AgentStatus @default(IDLE)
+  avatarColor   String
+  avatarIcon    String
+  lastRunAt     DateTime?
+  runsCount     Int         @default(0)
+  successRate   Float       @default(100)
+  runs          AgentRun[]
+  messages      AgentMessage[]
+}
+
+model AgentRun {
+  id         String     @id @default(cuid())
+  agentId    String
+  agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  startedAt  DateTime   @default(now())
+  finishedAt DateTime?
+  status     String // RUNNING | COMPLETED | FAILED
+  summary    String
+  log        String // multi-line execution log
+  input      String
+  output     String // JSON: structured output of the run
+  durationMs Int?
+}
+
+model AgentMessage {
+  id          String          @id @default(cuid())
+  agentId     String
+  agent       Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  senderName  String
+  kind        AgentMessageKind
+  content     String
+  targetId    String? // agent id or "operator"
+  createdAt   DateTime        @default(now())
+}
+
+model Contact {
+  id               String            @id @default(cuid())
+  name             String
+  email            String
+  phone            String?
+  company          String
+  role             String
+  avatarColor      String            @default("#3b82f6")
+  tags             String // JSON array of segment tags
+  relationshipStage RelationshipStage @default(PROSPECT)
+  sentiment        Sentiment         @default(NEUTRAL)
+  ltv              Float             @default(0)
+  nps              Int?
+  engagementScore  Int               @default(50)
+  source           String            @default("organic")
+  notes            String?
+  lastTouchAt      DateTime
+  createdAt        DateTime          @default(now())
+  deals            Deal[]
+  communications   Communication[]
+  invoices         Invoice[]
+}
+
+model Deal {
+  id            String     @id @default(cuid())
+  title         String
+  contactId     String
+  contact       Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  stage         DealStage  @default(LEAD)
+  value         Float
+  probability   Int
+  healthScore   Int
+  nextAction    String
+  suggestedMove String
+  source        String
+  daysInStage   Int
+  lastTouchAt   DateTime
+  createdAt     DateTime   @default(now())
+  closedAt      DateTime?
+  history       DealStageHistory[]
+}
+
+model DealStageHistory {
+  id        String    @id @default(cuid())
+  dealId    String
+  deal      Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromStage DealStage?
+  toStage   DealStage
+  at        DateTime  @default(now())
+}
+
+model Communication {
+  id             String      @id @default(cuid())
+  contactId      String
+  contact        Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel        ChannelType
+  direction      Direction
+  senderName     String
+  senderColor    String      @default("#3b82f6")
+  subject        String?
+  preview        String
+  body           String
+  priority       Priority    @default(MEDIUM)
+  sentiment      Sentiment   @default(NEUTRAL)
+  aiSummary      String?
+  threadKey      String?
+  read           Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+}
+
+model SocialAccount {
+  id                 String         @id @default(cuid())
+  platform           SocialPlatform
+  handle             String
+  displayName        String
+  followerCount      Int
+  growthRate         Float // % MoM
+  engagementRate     Float
+  bestPostingTime    String
+  healthScore        Int
+  followersHistory   String // JSON: [{date, followers}]
+  status             IntegrationStatus @default(NOT_CONFIGURED)
+  connectedAt        DateTime?
+  posts              SocialPost[]
+  metrics            SocialMetric[]
+}
+
+model SocialPost {
+  id           String         @id @default(cuid())
+  accountId    String?
+  account      SocialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  platform     SocialPlatform
+  content      String
+  status       PostStatus     @default(DRAFT)
+  scheduledAt  DateTime?
+  publishedAt  DateTime?
+  reach        Int?
+  likes        Int?
+  comments     Int?
+  shares       Int?
+  seriesId     String?
+  series       ContentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+}
+
+model SocialMetric {
+  id          String         @id @default(cuid())
+  accountId   String
+  account     SocialAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date        DateTime
+  followers   Int
+  impressions Int
+  engagements Int
+}
+
+model Transaction {
+  id          String              @id @default(cuid())
+  date        DateTime
+  description String
+  amount      Float
+  type        TransactionType
+  category    TransactionCategory
+  vendor      String?
+  recurring   Boolean             @default(false)
+  invoiceId   String?
+  invoice     Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  note        String?
+  createdAt   DateTime            @default(now())
+}
+
+model Invoice {
+  id          String         @id @default(cuid())
+  number      String         @unique
+  contactId   String?
+  contact     Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  status      InvoiceStatus  @default(DRAFT)
+  issueDate   DateTime
+  dueDate     DateTime
+  paidAt      DateTime?
+  amount      Float
+  description String
+  transactions Transaction[]
+}
+
+model KnowledgeNode {
+  id        String           @id @default(cuid())
+  title     String
+  summary   String
+  content   String
+  category  KnowledgeCategory
+  source    String
+  importance Int              @default(50)
+  tags      String // JSON array
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @default(now())
+  edgesFrom KnowledgeEdge[]  @relation("EdgeFrom")
+  edgesTo   KnowledgeEdge[]  @relation("EdgeTo")
+}
+
+model KnowledgeEdge {
+  id           String         @id @default(cuid())
+  fromId       String
+  from         KnowledgeNode  @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId         String
+  to           KnowledgeNode  @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+  relationType String
+  strength     Int            @default(50)
+  description  String?
+}
+
+model Task {
+  id             String      @id @default(cuid())
+  title          String
+  description    String
+  status         TaskStatus  @default(BACKLOG)
+  priority       TaskPriority @default(P2)
+  source         String // agent slug or "operator"
+  department     Department
+  dueDate        DateTime?
+  estimateHours  Int         @default(2)
+  dependencies   String // JSON array of task ids
+  delegationNote String?
+  createdAt      DateTime    @default(now())
+  completedAt    DateTime?
+}
+
+model Workflow {
+  id          String           @id @default(cuid())
+  name        String
+  description String
+  definition  String // JSON: trigger/conditions/actions chain
+  status      WorkflowStatus   @default(ACTIVE)
+  isTemplate  Boolean          @default(false)
+  runsCount   Int              @default(0)
+  successRate Float            @default(100)
+  createdAt   DateTime         @default(now())
+  runs        WorkflowRun[]
+}
+
+model WorkflowRun {
+  id         String   @id @default(cuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status     String
+  trigger    String
+  trace      String // JSON: step-by-step execution trace
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+}
+
+model Integration {
+  id               String             @id @default(cuid())
+  service          String
+  category         String
+  status           IntegrationStatus  @default(NOT_CONFIGURED)
+  lastSyncAt       DateTime?
+  dataPointsSynced Int                @default(0)
+  config           String // JSON
+  apiKeyMasked     String?
+  connectedAt      DateTime?
+  notes            String?
+}
+
+model Event {
+  id         String    @id @default(cuid())
+  type       EventType
+  aggregate  String
+  aggregateId String
+  actor      String
+  summary    String
+  payload    String // JSON
+  priority   Priority  @default(MEDIUM)
+  createdAt  DateTime  @default(now())
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  title     String
+  body      String
+  priority  Priority  @default(MEDIUM)
+  category  String
+  link      String?
+  read      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+}
+
+model BrainDump {
+  id        String   @id @default(cuid())
+  content   String
+  processed Boolean  @default(false)
+  nodeId    String?
+  createdAt DateTime @default(now())
+}
+
+model ContentSeries {
+  id               String        @id @default(cuid())
+  name             String
+  description      String
+  color            String        @default("#22d3ee")
+  performanceScore Int           @default(60)
+  createdAt        DateTime      @default(now())
+  posts            SocialPost[]
+}
+
+model Okr {
+  id          String    @id @default(cuid())
+  quarter     String
+  kind        String // OBJECTIVE | KEY_RESULT
+  objective   String
+  parentId    String?
+  progress    Int       @default(0)
+  confidence  Int       @default(70)
+  createdAt   DateTime  @default(now())
+}
+
+model Decision {
+  id           String    @id @default(cuid())
+  title        String
+  context      String
+  alternatives String // JSON array of {label, pros, cons}
+  decision     String
+  outcome      String?
+  status       String    @default("OPEN")
+  tags         String
+  date         DateTime  @default(now())
+}
